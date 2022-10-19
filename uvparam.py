@@ -130,13 +130,9 @@ gvlnodes = [
 
 
 
-
-
-
-
 @click.group()
 def cli():
-    """Command line Interface um UV4 auszulesen und Psarameter zurück zu sichern"""
+    """Command line Interface um UV4 auszulesen und Parameter zurück zu sichern"""
     pass
 
 
@@ -172,8 +168,6 @@ async def opc_read(_UV4_OPC_UA_Server_Address, _full_filename=""):
             myfilename = await composeFileName(str(version[1]))
 
         await writeCSV(csv_inhalt, myfilename)
-
-
 
 # Sammle einzelen Node, _opc_client OPCUA Client, _prefix Prefix für OPCUA Node, _symbol suffix für opcua Node
 async def gatherOne(_opc_client, _prefix, _symbol):
@@ -261,13 +255,11 @@ async def opc_write(opcua_server_url, _filename):
         #Prefix für komplette NodeId
         kennung1 = "ns=4;s=|var|"
         # Exor hat für das ex710 und ex710M unterschiedliche Kennungen
-        #kennung2 = client.get_node("ns=0;i=2261")
-        #kennung2 = "EXOR-ARM-Linux"
-        nid = client.get_node("ns=0;i=2261")        
+        #Daher client.get_node("ns=0;i=2261") um die spezifische Kennung zu erhalten
+        #Beispiel "EXOR-ARM-Linux"
+        nid = client.get_node("ns=0;i=2261")
         kennung2 = await client.get_values([nid])  
         kennung = kennung1 + kennung2[0] + ".Application."
-
-        
         
         with open(_filename, "r") as f:
             csv_rows = csv.reader(f, delimiter=";")
@@ -321,9 +313,6 @@ def write(file, host):
 
     #host = "192.168.2.42"
     uv4_opcua_url = "opc.tcp://" + host + ":4840"
-    # filename_base = "EOT.10_TEST_2209200740"
-    # filename_base = "SUH.08_2209261321"
-    # filepath = filename_base + ".csv" 
 
     asyncio.run(opc_write(uv4_opcua_url, file))
 
