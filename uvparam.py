@@ -14,7 +14,7 @@ import csv
 
 """ 
 Komplexe Structs (z.B.) Arrays OF eigene_stucts werden aufgebrochen in Scalare Typen.
-So können die dann stumpf in Exce weiterbearbeitet werden.
+So können die dann stumpf in Excel weiterbearbeitet werden.
 """
 gvlnodes = [
     "GVL.Gar_PCO2_15[1].POINT24[0].X",
@@ -248,6 +248,10 @@ def read(output, host, port):
 
 #### WRITE ####
 
+def strip_underscore(s):
+    if s.startswith("_"):
+        return s[1:]
+    return s
 
 async def opc_write(opcua_server_url, _filename):
     async with Client(url=opcua_server_url) as client:
@@ -260,38 +264,53 @@ async def opc_write(opcua_server_url, _filename):
         nid = client.get_node("ns=0;i=2261")
         kennung2 = await client.get_values([nid])  
         kennung = kennung1 + kennung2[0] + ".Application."
+        error_count = 0
         
         with open(_filename, "r") as f:
             csv_rows = csv.reader(f, delimiter=";")
             
-            print(f"Datei {_filename} geöffnet. Ist {getsizeof(csv_rows)} Byte groß. \nStarte OPCUA Write Vorgänge.....")
+            
+            print(f"Datei {_filename} geöffnet. Ist {getsizeof(csv_rows)} Byte groß. \nStarte OPCUA Write Vorgänge.....\n")
 
             for r in csv_rows:
-                val = ""
-                strVals = ""
+                
+                strVals = "["                
                 try:
-                    tag = kennung + r[0]
+                    tag = kennung + strip_underscore(r[0])
                     nid = client.get_node(tag)
                     dval = await nid.read_data_value()
-
-                    if dval.Value.is_array:
-                        dval_len = len(dval.Value.Value)+1  
-                        strVals = str(r[1:dval_len]).replace("'","")                        
-
-                    else:
-                        strVals = r[1]
                     
+                    if dval.Value.is_array:
+                        for i in range(0,len(dval.Value.Value)):
+                            if i+1<len(r):
+                                if(r[i+1].isalnum()):
+                                    strVals += r[i+1]
+                                else:
+                                    strVals += str(dval.Value.Value[i])
+                            else: 
+                                strVals += str(dval.Value.Value[i])
+                            strVals += ","
+                        strVals = strVals[:-1] +  "]"
+                    else:
+                        if len(r)==2:
+                            strVals = r[1]
+                        else:
+                            strVals += str(dval.Value.Value[i])
+
+                    # print(f"strVals:    {strVals}")  
                     val = ua.Variant( string_to_val(strVals, dval.Value.VariantType), dval.Value.VariantType )
+                    # print(f">>WRITE>>\t{val}\n\n")
+
                     await nid.write_value( val )
-                        
 
                 except Exception as flumpy:
-                    print(flumpy)
-                    print(f"ERROR Fehlgeschlagener Schreibversuch {tag} <= {strVals}")
+                    error_count +=1                            
+                    print(f"ERROR failed to write csv #{csv_rows.line_num}\t{r}")
+                    print(f"REASON: {flumpy.args[0]}\n{flumpy}\n")                    
 
         print(f"Parameter aus Datei {_filename} nach {opcua_server_url} übertragen.\nScript ausgeführt!")
-
-
+        if error_count > 0:
+            print(f"{error_count} Zeile(n) nicht geschrieben!!!!")
 
 
 def validate_file_must_exist(ctx, param, value):
