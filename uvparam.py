@@ -269,7 +269,6 @@ async def opc_write(opcua_server_url, _filename):
         with open(_filename, "r") as f:
             csv_rows = csv.reader(f, delimiter=";")
             
-            
             print(f"Datei {_filename} geöffnet. Ist {getsizeof(csv_rows)} Byte groß. \nStarte OPCUA Write Vorgänge.....\n")
 
             for r in csv_rows:
@@ -280,26 +279,28 @@ async def opc_write(opcua_server_url, _filename):
                     nid = client.get_node(tag)
                     dval = await nid.read_data_value()
                     
-                    if dval.Value.is_array:
+                    if dval.Value.is_array:                        
                         for i in range(0,len(dval.Value.Value)):
+                            # check if a csv line has enough values for target opc value
                             if i+1<len(r):
                                 if(r[i+1].isalnum()):
                                     strVals += r[i+1]
                                 else:
+                                    #fill with existing values
                                     strVals += str(dval.Value.Value[i])
                             else: 
+                                #fill with existing values
                                 strVals += str(dval.Value.Value[i])
-                            strVals += ","
-                        strVals = strVals[:-1] +  "]"
+
+                            strVals += ","                             
+                        strVals = strVals[:-1] +  "]" #no trailing comma at the end
                     else:
                         if len(r)==2:
                             strVals = r[1]
                         else:
                             strVals += str(dval.Value.Value[i])
 
-                    # print(f"strVals:    {strVals}")  
                     val = ua.Variant( string_to_val(strVals, dval.Value.VariantType), dval.Value.VariantType )
-                    # print(f">>WRITE>>\t{val}\n\n")
 
                     await nid.write_value( val )
 
