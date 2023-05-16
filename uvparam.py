@@ -282,9 +282,9 @@ async def opc_write(opcua_server_url, _filename):
                     if dval.Value.is_array:                        
                         for i in range(0,len(dval.Value.Value)):
                             # check if a csv line has enough values for target opc value
-                            if i+1<len(r):
-                                if(r[i+1].isalnum()):
-                                    strVals += r[i+1]
+                            if i+1<len(r):                                
+                                if(len(r[i+1])>0):
+                                    strVals += str(r[i+1])
                                 else:
                                     #fill with existing values
                                     strVals += str(dval.Value.Value[i])
@@ -301,13 +301,15 @@ async def opc_write(opcua_server_url, _filename):
                             strVals += str(dval.Value.Value[i])
 
                     val = ua.Variant( string_to_val(strVals, dval.Value.VariantType), dval.Value.VariantType )
+                    
+                    # print(f"Row {r}\tWrite {val.Value}")
 
                     await nid.write_value( val )
 
                 except Exception as flumpy:
                     error_count +=1                            
                     print(f"ERROR failed to write csv #{csv_rows.line_num}\t{r}")
-                    print(f"REASON: {flumpy.args[0]}\n{flumpy}\n")                    
+                    print(f"REASON: {flumpy.args[0]}\n")  
 
         print(f"Parameter aus Datei {_filename} nach {opcua_server_url} übertragen.\nScript ausgeführt!")
         if error_count > 0:

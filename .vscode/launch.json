@@ -1,0 +1,18 @@
+{
+    // Verwendet IntelliSense zum Ermitteln möglicher Attribute.
+    // Zeigen Sie auf vorhandene Attribute, um die zugehörigen Beschreibungen anzuzeigen.
+    // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "uvparam Nur GVL",
+            "type": "python",
+            "request": "launch",            
+            "program": "uvparam.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": ["write", "192.168.2.233", "--file=GVL_only.csv", "--yes"]
+        }
+    ]
+}
