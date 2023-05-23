@@ -1,15 +1,15 @@
-#!/usr/bin/python
-
-import asyncio
 import click
+import asyncio
 import os.path
 import logging
 from sys import getsizeof
 from datetime import datetime
 import re
+import csv
 from asyncua import Client, Node, ua
 from asyncua.common.ua_utils import string_to_val
-import csv
+import aiofiles 
+from aiocsv import AsyncReader
 
 
 """ 
@@ -214,7 +214,6 @@ async def writeCSV(_csv_inhalt, _filename):
 
     print("Daten eingelesen und gespeichert in " + _filename)
 
-
 async def composeFileName(_base):
     # nicht erlaubte Dateinamen-Zeichen aus Konfig.Gs_Version gegen _ ersetzen
     nb = re.sub(r'[#~“#%&*:<>?/\\{|}]', "_", _base)
@@ -253,9 +252,52 @@ def strip_underscore(s):
         return s[1:]
     return s
 
+
+async def rowToWrite(kennung, client, r, linenumber):
+    msg = ""
+    strVals = "["                
+    try:
+        tag = kennung + strip_underscore(r[0])
+        nid = client.get_node(tag)
+        dval = await nid.read_data_value()
+        
+        if dval.Value.is_array:                        
+            for i in range(0,len(dval.Value.Value)):
+                # check if a csv line has enough values for target opc value
+                if i+1<len(r):                                
+                    if(len(r[i+1])>0):
+                        strVals += str(r[i+1])
+                    else:
+                        #fill with existing values
+                        strVals += str(dval.Value.Value[i])
+                else: 
+                    #fill with existing values
+                    strVals += str(dval.Value.Value[i])
+
+                strVals += ","                             
+            strVals = strVals[:-1] +  "]" #no trailing comma at the end
+        else:
+            if len(r)==2:
+                strVals = r[1]
+            else:
+                strVals += str(dval.Value.Value[i])
+
+        val = ua.Variant( string_to_val(strVals, dval.Value.VariantType), dval.Value.VariantType )
+        
+        msg = f"Row {r}\tWrite {val.Value}"
+        msg = f"{r[0]}\n->CSV\t{r[1:]}\nOPC->\t{val.Value}"
+
+        await nid.write_value( val )
+
+    except Exception as flumpy:
+        msg = f"ERROR failed to write csv #{linenumber}\t{r}REASON: {flumpy.args[0]}\n"
+    finally:
+        return msg
+
 async def opc_write(opcua_server_url, _filename):
-    async with Client(url=opcua_server_url) as client:
-    
+    client = Client(url=opcua_server_url)
+    try:
+        await client.connect()        
         #Prefix für komplette NodeId
         kennung1 = "ns=4;s=|var|"
         # Exor hat für das ex710 und ex710M unterschiedliche Kennungen
@@ -265,55 +307,30 @@ async def opc_write(opcua_server_url, _filename):
         kennung2 = await client.get_values([nid])  
         kennung = kennung1 + kennung2[0] + ".Application."
         error_count = 0
+        msg=""
         
-        with open(_filename, "r") as f:
-            csv_rows = csv.reader(f, delimiter=";")
+        async with aiofiles.open(_filename, "r") as f:            
+            print(f"Datei {_filename} geöffnet.\nStarte OPCUA Write Vorgänge.....\n")
             
-            print(f"Datei {_filename} geöffnet. Ist {getsizeof(csv_rows)} Byte groß. \nStarte OPCUA Write Vorgänge.....\n")
-
-            for r in csv_rows:
-                
-                strVals = "["                
-                try:
-                    tag = kennung + strip_underscore(r[0])
-                    nid = client.get_node(tag)
-                    dval = await nid.read_data_value()
-                    
-                    if dval.Value.is_array:                        
-                        for i in range(0,len(dval.Value.Value)):
-                            # check if a csv line has enough values for target opc value
-                            if i+1<len(r):                                
-                                if(len(r[i+1])>0):
-                                    strVals += str(r[i+1])
-                                else:
-                                    #fill with existing values
-                                    strVals += str(dval.Value.Value[i])
-                            else: 
-                                #fill with existing values
-                                strVals += str(dval.Value.Value[i])
-
-                            strVals += ","                             
-                        strVals = strVals[:-1] +  "]" #no trailing comma at the end
-                    else:
-                        if len(r)==2:
-                            strVals = r[1]
-                        else:
-                            strVals += str(dval.Value.Value[i])
-
-                    val = ua.Variant( string_to_val(strVals, dval.Value.VariantType), dval.Value.VariantType )
-                    
-                    # print(f"Row {r}\tWrite {val.Value}")
-
-                    await nid.write_value( val )
-
-                except Exception as flumpy:
-                    error_count +=1                            
-                    print(f"ERROR failed to write csv #{csv_rows.line_num}\t{r}")
-                    print(f"REASON: {flumpy.args[0]}\n")  
+            i = 0            
+            async with asyncio.TaskGroup() as tg:
+                async for r in AsyncReader(f,delimiter=";"):
+                    tg.create_task(
+                        rowToWrite(kennung=kennung, client=client, r=r, linenumber=i),
+                        name=r[0]
+                    )
+                    i +=1
 
         print(f"Parameter aus Datei {_filename} nach {opcua_server_url} übertragen.\nScript ausgeführt!")
         if error_count > 0:
             print(f"{error_count} Zeile(n) nicht geschrieben!!!!")
+    
+    except Exception as opc_error:
+        print(f"opc_write() ERROR: {opc_error.args[0]}")
+
+    finally:
+        await client.disconnect()
+        print("opc write disconnect()")        
 
 
 def validate_file_must_exist(ctx, param, value):
@@ -331,19 +348,86 @@ def validate_file_must_exist(ctx, param, value):
 @click.confirmation_option(prompt='Bist Du wirklich sicher, das Du die Einstellungen überschreiben möchtest?\nIch frag nicht noch einmal...')
 def write(file, host):
     """Schreibt alle Einträge aus einer CSV-Datei."""
-    click.echo(f'Rufe Schreibbefehl auf.\nHost: {host}\nDatei: {file}' )
-
-    #host = "192.168.2.42"
+    click.echo(f'Rufe Schreibbefehl auf.\nHost: {host}\nDatei: {file}' )    
     uv4_opcua_url = "opc.tcp://" + host + ":4840"
-
     asyncio.run(opc_write(uv4_opcua_url, file))
+
+
+#### COMPARE ####
+
+def castStr(s:str):
+    val = 0
+    if(s.startswith(("T", "t"))):
+        return True
+    if(s.startswith(("f", "F"))):
+        return False
+    if(s.find(".")>0):
+        return float(s)
+    else:
+        return int(s)
+
+async def compare_by_row(compopc, r, linenumber):
+    tag = strip_underscore(r[0])
+    if(tag in compopc):
+        # TODO kürzeres auswählen
+        for i in range(len(r)-1):
+            cval = castStr(r[i+1])
+            oval = castStr(compopc[tag][i])
+            if(cval != oval):
+                print(f"{linenumber}.{i+1:<3}\t{tag:<38}CSV: {cval}\tOnline: {oval}")
+    else:
+        print(f"{linenumber}\t{tag} nicht auf UV4 vorhanden.")
+
+
+async def opc_compare(_UV4_OPC_UA_Server_Address, _full_filename=""):
+    async with Client(url=_UV4_OPC_UA_Server_Address) as client:        
+        kennung1 = "ns=4;s=|var|"
+        # Exor hat für das ex710 und ex710M unterschiedliche Kennungen
+        nid = client.get_node("ns=0;i=2261")        
+        kennung2 = await client.get_values([nid])        
+        prefix = kennung1 + kennung2[0] + ".Application."
+
+        #Gruppen von Parametern einlesen
+        opc_eingelesen = await gather(client, prefix + "P")
+        opc_eingelesen.extend(await gather(client, prefix + "PR"))
+        opc_eingelesen.extend(await gather(client, prefix + "Z"))
+
+        # einzelen Nodes lesen
+        for symbol_name in gvlnodes:
+            opc_eingelesen.append(await gatherOne(client, prefix, symbol_name))
+        
+        comp_opc = {e[0]:e[1:] for e in opc_eingelesen}
+                        
+
+        # ein Dateiname wurde übergeben            
+        async with aiofiles.open(_full_filename, "r") as fscv:                           
+            print(f"Datei {_full_filename} geöffnet.\nStarte Vergleich.....\n")
+            i = 0            
+            async with asyncio.TaskGroup() as tg:
+                async for r in AsyncReader(fscv ,delimiter=";"):
+                    tg.create_task(
+                        compare_by_row(comp_opc, r=r, linenumber=i),
+                        name=r[0]
+                    )
+                    i +=1
+                      
+
+@click.command()
+@click.option('--file','-f', type=click.UNPROCESSED, callback=validate_file_must_exist, help='Angabe eines Datenamen, das die zu vergleichende CSV Datei enthält.')
+@click.argument('host')
+def compare(file,host):
+    """Vergleicht alle Einträge aus einer CSV-Datei mit den aktuellen Parametern"""
+    click.echo(f'Rufe Vergleich auf.\nHost: {host}\nDatei: {file}' )    
+    uv4_opcua_url = "opc.tcp://" + host + ":4840"
+    asyncio.run(opc_compare(uv4_opcua_url, file))
 
 
 #### CLICK ####
 
 cli.add_command(read)
 cli.add_command(write)
+cli.add_command(compare)
 
 
 if __name__ == '__main__':
-    cli()
+    asyncio.run(cli())
