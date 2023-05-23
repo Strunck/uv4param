@@ -18,11 +18,17 @@ Download the exe file from this repo `dist` folder
 `uvparam.exe write HOSTNAME -f parmameter.csv` to write the CSV line back to the PLC.
 
 ## DEVELOP
+### Python 3.11
+The write method uses the new Taskgroups. So Python 3.11 is requiered!
 ##### 1.
 Get the repository. Change in the project root directory. Make a virtual enviroment.
 ```
-py -m venv .venv
-.\.venv\Scripts\activate
+Create Virtual Enviroment in hidden subfolder ".venv"
+python -m venv .venv
+
+On Windows, aktivate like so:
+.\.venv\Scripts\Activate.ps1
+
 ```
 
 ##### 2.
