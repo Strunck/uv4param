@@ -253,7 +253,7 @@ def strip_underscore(s):
     return s
 
 
-async def rowToWrite(kennung, client, r, linenumber):
+async def rowToWrite(kennung, client:Node, r, linenumber):
     msg = ""
     strVals = "["                
     try:
@@ -284,10 +284,12 @@ async def rowToWrite(kennung, client, r, linenumber):
 
         val = ua.Variant( string_to_val(strVals, dval.Value.VariantType), dval.Value.VariantType )
         
-        msg = f"Row {r}\tWrite {val.Value}"
-        msg = f"{r[0]}\n->CSV\t{r[1:]}\nOPC->\t{val.Value}"
+        
+        write_result = await nid.write_value( val )
 
-        await nid.write_value( val )
+        msg = f"{r[0]}\n->CSV\t{r[1:]}\nOPC->\t{val.Value}"
+        print(msg)
+        print(write_result)
 
     except Exception as flumpy:
         msg = f"ERROR failed to write csv #{linenumber}\t{r}REASON: {flumpy.args[0]}\n"
